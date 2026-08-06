@@ -14,7 +14,7 @@ coefficient matrices diagonal in it, identical scalar memory weights per node.
 import numpy as np
 from p2_oracle import P2_API_VERSION, kernel_weights, mode_spec, p2_mode_oracle, \
                       exact_recovery_inputs_p2
-assert P2_API_VERSION == "p2-v1-trapezoid-modes"
+assert P2_API_VERSION == "p2-v2-guards"
 
 rng = np.random.default_rng(0)
 d, r, H = 6, 2, 5
@@ -108,6 +108,15 @@ for _ in range(200):
     res = mats["R"] @ u_dense + mats["B"].T @ p_dense \
           + sum(mats["Ds"][l].T @ q_dense[l] for l in range(r))
     efoc_d = max(efoc_d, np.abs(res).max())
+    # dense vector anchored recovery (rec. 6.6): Pi block-diagonal per mode
+    Pi_d = V @ np.diag([t["Pi"] for t in tms]) @ V.T
+    z_dense = [V @ np.array([t["zeta"][l] for t in tms]) for l in range(r)]
+    sb_dense = [V @ np.array([t["sig_bar"][l] for t in tms]) for l in range(r)]
+    Rcal = mats["R"] + sum(mats["Ds"][l].T @ Pi_d @ mats["Ds"][l] for l in range(r))
+    g = mats["B"].T @ p_dense + sum(mats["Ds"][l].T @ (z_dense[l] + Pi_d @ sb_dense[l])
+                                    for l in range(r))
+    eanc_d = max(globals().get("eanc_d", 0.0), np.abs(np.linalg.solve(Rcal, -g) - u_dense).max())
+    globals()["eanc_d"] = eanc_d
 print(f"[{P2_API_VERSION}] d={d} r={r} H={H} N={N}  trapezoidal weights sum={w.sum():.3f}")
 print("max|P_dense - assemble(P_modes)|   =", eP)
 print("max|G_dense - assemble(G_modes)|   =", eG)
@@ -118,5 +127,6 @@ print("max|u_dense - V u_modes| (200 pts) =", eu)
 print("mode q-form FOC max residual       =", efoc_m)
 print("dense vector FOC max residual      =", efoc_d)
 print("anchored recovery max |u_rec-u*|   =", eanc)
+print("dense vector anchored max residual =", globals().get("eanc_d", float("nan")))
 print("min Lam_i/h =", min(min(o["Lam"])/h for o in orc),
       " min Pi_i =", min(o["G"][k][0,0] for o in orc for k in range(N+1)))

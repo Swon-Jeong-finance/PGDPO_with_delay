@@ -2,37 +2,54 @@
 distributed-delay network LQ (unconstrained, m = d, common orthonormal
 eigenbasis, all coefficient matrices diagonal in that basis, identical scalar
 memory weights at every node -- outside these conditions the mode
-decomposition does NOT hold; see the eigencheck notes).
+decomposition does NOT hold).
 
 Memory quadrature (manuscript Appendix C convention, paper-code gate):
-  M_k = sum_{j=0..H} w_j X_{k-j},  normalized trapezoidal weights
+  M_k = sum_{j=0..H} w_j X_{k-j},  normalized trapezoidal weights,
   w_j prop K(j h) h with endpoint halving, sum_j w_j = 1,
-  K(a) = rho e^{-rho a} / (1 - e^{-rho delta}).
-The simulator must use the identical weights.
+  K(a) = rho e^{-rho a} / (1 - e^{-rho delta}).  Simulator must match.
 
-Complexity: shift + rank-one structured ops give O(d N H^2 (1+r)) total,
-versus O(N (d(H+1))^3) for the dense buffer recursion.
+Complexity: shift + rank-one structured ops with preallocated storage give
+O(d N H^2 (1+r)) total, versus O(N (d(H+1))^3) dense.
 """
 import numpy as np
 from p1_oracle import AtPA, AtPe1, Ats
 
-P2_API_VERSION = "p2-v1-trapezoid-modes"
+P2_API_VERSION = "p2-v2-guards"
 
 def kernel_weights(rho, delta, h, H):
+    assert H >= 1 and h > 0 and delta > 0 and np.isclose(H*h, delta)
     ages = np.arange(H + 1) * h
-    w = rho*np.exp(-rho*ages)/(1 - np.exp(-rho*delta))*h
+    w = rho*np.exp(-rho*ages)/(-np.expm1(-rho*delta))*h
     w[[0, -1]] *= 0.5
     return w / w.sum()
 
+def _checked_spectrum(V, M, name, tol=1e-10):
+    d = V.shape[0]
+    if V.shape != (d, d):
+        raise ValueError("V must be square")
+    if not np.allclose(V.T @ V, np.eye(d), atol=tol, rtol=tol):
+        raise ValueError("V must be orthonormal")
+    if not np.allclose(M, M.T, atol=tol, rtol=tol):
+        raise ValueError(f"{name} must be symmetric")
+    Tm = V.T @ M @ V
+    off = Tm - np.diag(np.diag(Tm))
+    scale = max(1.0, np.linalg.norm(Tm, ord="fro"))
+    if np.linalg.norm(off, ord="fro") > tol*scale:
+        raise ValueError(f"{name} is not diagonal in the supplied basis")
+    return np.diag(Tm).copy()
+
 def mode_spec(V, mats):
-    """Spectra of all coefficient matrices in the common eigenbasis V.
-    mats: dict with A, AM, B, Cs[r], CMs[r], Ds[r], Q, R, QT, sig0[r]."""
-    ev = lambda M: np.diag(V.T @ M @ V)
+    """Spectra of all coefficient matrices in the common eigenbasis V, with
+    simultaneous-diagonalization guards (Hard 1)."""
     r = len(mats["Cs"])
-    return dict(a=ev(mats["A"]), aM=ev(mats["AM"]), b=ev(mats["B"]),
-                c=[ev(M) for M in mats["Cs"]], cM=[ev(M) for M in mats["CMs"]],
-                dd=[ev(M) for M in mats["Ds"]], q=ev(mats["Q"]), r=ev(mats["R"]),
-                qT=ev(mats["QT"]), sig=[V.T @ v for v in mats["sig0"]], nbm=r)
+    ev = lambda M, nm: _checked_spectrum(V, M, nm)
+    return dict(a=ev(mats["A"], "A"), aM=ev(mats["AM"], "AM"), b=ev(mats["B"], "B"),
+                c=[ev(M, f"C{l}") for l, M in enumerate(mats["Cs"])],
+                cM=[ev(M, f"CM{l}") for l, M in enumerate(mats["CMs"])],
+                dd=[ev(M, f"D{l}") for l, M in enumerate(mats["Ds"])],
+                q=ev(mats["Q"], "Q"), r=ev(mats["R"], "R"), qT=ev(mats["QT"], "QT"),
+                sig=[V.T @ v for v in mats["sig0"]], nbm=r)
 
 def mode_rows(spec, i, w, h, n1):
     e1 = np.zeros(n1); e1[0] = 1.0
@@ -43,9 +60,8 @@ def mode_rows(spec, i, w, h, n1):
         crows.append(c)
     return row, crows
 
-def p2_mode_oracle(spec, w, H, h, N):
-    """Structured per-mode recursions. Returns per-mode dicts with
-    Pval, s, c (value), F, f, Lam (feedback), G (detached curvature)."""
+def p2_mode_oracle(spec, w, H, h, N, lam_tol=1e-12):
+    """Structured per-mode recursions (preallocated storage, Hard 2)."""
     n1 = H + 1; e1 = np.zeros(n1); e1[0] = 1.0
     out = []
     for i in range(len(spec["a"])):
@@ -56,27 +72,31 @@ def p2_mode_oracle(spec, w, H, h, N):
         ccT = sum(np.outer(c, c) for c in crows)
         P = spec["qT"][i]*np.outer(e1, e1); s = np.zeros(n1); cc = 0.0
         G = P.copy()
-        Ps, ss, cs, Fs, fs, Ls, Gs = [P], [s], [cc], [], [], [], [G.copy()]
+        Ps = [None]*(N+1); ss = [None]*(N+1); cs = [None]*(N+1); Gs = [None]*(N+1)
+        Fs = [None]*N; fs = [None]*N; Ls = [None]*N
+        Ps[N], ss[N], cs[N], Gs[N] = P, s, cc, G.copy()
         for k in range(N-1, -1, -1):
             P11 = P[0, 0]
             Lam = h*Ri + (h*bi)**2*P11 + h*sum(d*d for d in ddi)*P11
+            if not np.isfinite(Lam) or Lam <= lam_tol:
+                raise FloatingPointError(f"Lambda degenerate: mode {i}, k {k}, Lam={Lam}")
             K = h*bi*AtPe1(P, row) + h*P11*sum(d*c for d, c in zip(ddi, crows))
             kap = h*bi*s[0] + h*P11*sum(d*sg for d, sg in zip(ddi, sgi))
             Pn = h*qi*np.outer(e1, e1) + AtPA(P, row) + h*P11*ccT - np.outer(K, K)/Lam
             sn = Ats(s, row) + h*P11*sum(sg*c for sg, c in zip(sgi, crows)) - K*(kap/Lam)
             cn = cc + 0.5*h*P11*sum(sg*sg for sg in sgi) - 0.5*kap*kap/Lam
-            Fs.insert(0, -K/Lam); fs.insert(0, -kap/Lam); Ls.insert(0, Lam)
+            Fs[k], fs[k], Ls[k] = -K/Lam, -kap/Lam, Lam
             P, s, cc = 0.5*(Pn + Pn.T), sn, cn
-            Ps.insert(0, P); ss.insert(0, s); cs.insert(0, cc)
             G = h*qi*np.outer(e1, e1) + AtPA(G, row) + h*G[0, 0]*ccT
-            G = 0.5*(G + G.T); Gs.insert(0, G.copy())
+            G = 0.5*(G + G.T)
+            Ps[k], ss[k], cs[k], Gs[k] = P, s, cc, G.copy()
         out.append(dict(Pval=Ps, s=ss, c=cs, F=Fs, f=fs, Lam=Ls, G=Gs))
     return out
 
 def exact_recovery_inputs_p2(i, k, zi, spec, orc_i, w, H, h):
-    """Exact per-mode recovery targets under the optimal policy:
-      u, p_cur, p_nxt, per-Brownian q_l, Pi, per-Brownian zeta_l,
-      sigma_star_l, sigma_bar_l, and the anchored recovered action."""
+    """Exact per-mode recovery targets under the optimal policy.
+    p_cur = manuscript Stage-II current input; p_nxt = exact same-grid
+    Euler-FOC diagnostic (u_rec below reconstructs the exact FOC via p_nxt)."""
     n1 = H + 1
     row, crows = mode_rows(spec, i, w, h, n1)
     bi, Ri = spec["b"][i], spec["r"][i]

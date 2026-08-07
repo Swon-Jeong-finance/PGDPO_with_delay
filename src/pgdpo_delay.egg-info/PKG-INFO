@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: pgdpo-delay
+Version: 0.1.0
+Summary: PGDPO delay-control benchmarks: reference layer, solver, experiments
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: pyyaml
+Provides-Extra: solver
+Requires-Dist: torch; extra == "solver"

@@ -12,12 +12,20 @@ def load_p2_config(name: str = "scaling") -> dict:
         raw = yaml.safe_load(path.read_text())
     else:
         local = Path.cwd() / "configs" / "p2" / f"{name}.yaml"
-        if local.exists():
+        res = files("pgdpo_delay.configs").joinpath("p2", f"{name}.yaml")
+        if res.is_file():
+            # canonical names: package only; differing CWD shadow refused
+            # (review 2026-08-07 sec.4.9, same rule as p1/config.py)
+            text = res.read_text()
+            if local.exists() and local.read_text() != text:
+                raise RuntimeError(
+                    f"{local} shadows the canonical packaged config with "
+                    f"different content; derive under a NEW name instead.")
+            raw = yaml.safe_load(text)
+        elif local.exists():
             raw = yaml.safe_load(local.read_text())
         else:
-            res = files("pgdpo_delay.configs").joinpath("p2", f"{name}.yaml")
-            if not res.is_file(): raise KeyError(f"unknown P2 config: {name}")
-            raw = yaml.safe_load(res.read_text())
+            raise KeyError(f"unknown P2 config: {name}")
     if raw["grid"]["T"] <= 0 or raw["grid"]["dt"] <= 0:
         raise ValueError("grid.T and grid.dt must be positive")
     if int(raw["r_main"]) < 1: raise ValueError("r_main must be >= 1")

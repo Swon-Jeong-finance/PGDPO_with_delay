@@ -1,0 +1,22 @@
+# Cheap execution/artifact smoke.  This is not a paper-result protocol.
+schema: 2
+name: p1_u_smoke
+problem: p1
+problem_config: main_u
+method: stage1_lstm_dpo
+chart: identity
+dtype: float32
+training:
+  iters: 1
+  batch: 4
+  lr: 0.0003
+  hidden: 8
+  num_layers: 2
+  clip_grad: 1.0
+  log_every: 1
+  val_every: 1
+  val_batch: 4
+evaluation:
+  Np: 8
+  seed: 123
+  batch_size: 4

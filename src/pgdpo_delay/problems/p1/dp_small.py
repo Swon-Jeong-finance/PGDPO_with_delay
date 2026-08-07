@@ -14,9 +14,15 @@ Improvements in this revision:
   * Role split for policy readout (review sec.10):
       dp_action_label_at        nearest-node action  -> active-set labels
       dp_action_interpolated_at multilinear action   -> smooth trajectories
-  * Boundary audit: mean out-of-domain fraction of continuation points.
+  * Grid-quadrature clipping diagnostic: mean continuation OOB fraction
+    over the full Bellman tensor/action/GH grid; NOT a rollout or
+    domain-certification metric (minfix review sec.6).
 Remaining refinement track: state-interpolation upgrade (convexity-preserving)
 and the (n_x, n_gh, n_u, L) refinement ladder with accuracy gates.
+Ladder status (2026-08-07): implementation DEFERRED (appendix-audit only, not
+on the paper critical path); the binding spec is
+docs/decisions/PGDPO_P1C_code_and_DP_ladder_review_20260807.md (sec.11 phase order, matched-dx
+domain rungs r2D/r3D, explicit int8 regime table, reoptimized readout).
 """
 import time
 import numpy as np
@@ -112,7 +118,12 @@ def dp_reference(cfg, n_x=None, n_gh=None, n_u=None, L=None, bounds=None):
     t_dp = time.perf_counter() - t0
     return dict(V=Vs, pol=pol, xg=xg, ug=ug, L=L, n_x=n_x, n_gh=n_gh, n_u=n_u,
                 bounds=(lo_u, hi_u), runtime=t_dp,
-                oob_frac=float(np.mean(oob)) if oob else 0.0)
+                # DIAGNOSTIC ONLY (review 2026-08-07 sec.4.7): uniform-weight
+                # continuation clipping over the full Bellman tensor grid at
+                # ALL candidate actions/GH nodes. NOT an audit-bank or rollout
+                # boundary metric; never use it as a domain-certification (G4)
+                # input or compare it directly across different L.
+                grid_quadrature_oob_frac=float(np.mean(oob)) if oob else 0.0)
 
 def dp_value_at(dp, k, z):
     c = (np.asarray(z) - dp["xg"][0])/(dp["xg"][1] - dp["xg"][0])

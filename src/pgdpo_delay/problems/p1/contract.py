@@ -32,6 +32,12 @@ from .dynamics import make_hist, feedback_path
 
 assert ORACLE_API_VERSION == "p1-v3-pcur-pnext", ORACLE_API_VERSION
 
+# This audit is specifically the unconstrained P1-U estimator contract.  The
+# P1-C ``main`` variant currently shares its numerical coefficients, but its
+# control chart/bounds and scientific-config identity are deliberately
+# different and must not be substituted here.
+CONTRACT_CONFIG = "main_u"
+
 def branch_stats(params, H, h, N, orc, xref, xtar, k, z, M, rng):
     """M Gaussian continuations from (k, z), frozen feedback values (detached).
     Returns lam0 (current gradient, tangent at k), lam1 (tangent at k+1),
@@ -103,7 +109,7 @@ def run(outdir="."):
     from pathlib import Path as _P
     outdir = _P(outdir); outdir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(7)
-    cfg = load_config("main")               # adopted P1-U calibration (YAML)
+    cfg = load_config(CONTRACT_CONFIG)       # adopted P1-U calibration (YAML)
     params = cfg["params"]
     T, delta, h = cfg["T"], cfg["delta"], cfg["h"]
     N, H, tt = cfg["N"], cfg["H"], cfg["tt"]; n = H+1

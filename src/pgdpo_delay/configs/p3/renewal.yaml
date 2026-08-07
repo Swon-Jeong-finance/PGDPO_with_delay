@@ -1,0 +1,36 @@
+# P3-R renewal-epidemic frozen calibration (V1 pilot 2026-08-07; gates below).
+# SINGLE SOURCE for paper numbers: code carries no fallback defaults.
+# Cost half-convention ADOPTED (design-handoff sec.12.4 recommendation):
+#   running (c_I/2) I^2 + (R/2) u^2, terminal (c_T/2) I_T^2, so p_T = c_T I_T.
+kind: renewal
+problem:
+  beta: 2.0          # renewal transmission via memory M
+  gamma: 0.6         # recovery
+  b: 0.6             # intervention removal channel  (-b u I in drift)
+  sigma0: 0.7       # outbreak volatility scale     (sigma = sigma0 (1-eta u) I)
+  eta_sigma: 0.7     # controlled-diffusion loading, 0 < eta < 1
+  rho: 0.8           # renewal memory rate  dM = rho (I - M) dt
+  Npop: 1.0          # population normalisation (I is a fraction)
+  c_I: 4.0
+  R: 0.22
+  c_T: 4.0
+grid:
+  T: 2.0
+  dt_sim: 0.02       # shared simulator/control grid (all methods)
+control:
+  lower: 0.0
+  upper: 1.0
+init:                # evaluation initial-state law (uniform boxes)
+  I0: [0.05, 0.40]
+  M0: [0.02, 0.80]
+hjb:
+  I_max: 1.5         # = M_max: every boundary drift points inward (validated)
+  n_I: 151           # production grid; fast verify overrides with a coarse one
+  n_M: 151
+  cfl_safety: 0.8
+nmpc:                   # CE-NMPC cross-check; not an oracle/reference
+  lookahead_steps: 25
+  max_iter: 40
+  gtol: 1.0e-8
+  ftol: 1.0e-12
+  terminal_mode: quadratic_proxy

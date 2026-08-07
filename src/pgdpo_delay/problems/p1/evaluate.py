@@ -16,6 +16,25 @@ import numpy as np
 from .oracle import build_dense
 from .dynamics import make_hist
 
+
+def _apply_control_set(u, bounds):
+    """Apply the configured control set without inventing bounds for P1-U.
+
+    ``numpy.clip(u, *bounds)`` was used throughout this module when P1-C was
+    the only runnable variant.  P1-U deliberately stores ``bounds=None``;
+    passing that through ``*bounds`` raises before a rollout or estimator can
+    start.  Keep the identity map exact for P1-U and clipping exact for P1-C.
+    """
+    return u if bounds is None else np.clip(u, *bounds)
+
+
+def _box_bounds(cfg, caller):
+    """Return P1-C bounds, making box-only diagnostic APIs explicit."""
+    bounds = cfg["bounds"]
+    if bounds is None:
+        raise ValueError(f"{caller} is a P1-C box-only diagnostic")
+    return bounds
+
 def rollout_paired(cfg, polA, polB, Np, seed):
     p, h, N, H = cfg["params"], cfg["h"], cfg["N"], cfg["H"]
     A, B, C, D, Sg = build_dense(p, H, h)
@@ -26,7 +45,7 @@ def rollout_paired(cfg, polA, polB, Np, seed):
     for pol in (polA, polB):
         Z = Z0.copy(); cost = np.zeros(Np)
         for k in range(N):
-            u = np.clip(pol(k, Z), *cfg["bounds"])
+            u = _apply_control_set(pol(k, Z), cfg["bounds"])
             cost += h*(0.5*p["Q"]*(Z[:, 0]-cfg["xref"][k])**2 + 0.5*p["R"]*u*u)
             Z = Z @ A.T + np.outer(u, B) + (Z @ C.T + np.outer(u, D) + Sg)*dW[:, k, None]
         cost += 0.5*p["QT"]*(Z[:, 0]-cfg["xtar"])**2
@@ -54,7 +73,7 @@ def estimator_inputs(cfg, pol, k, z, M, Mout, Min, seed, no_anticipation=False):
     lam0 = np.zeros(M); PiT = np.zeros(M)
     Vk = np.zeros((M, n)); Vk[:, 0] = 1.0
     for j in range(k, N):
-        u = np.clip(pol(j, Z), *cfg["bounds"])
+        u = _apply_control_set(pol(j, Z), cfg["bounds"])
         lam0 += h*Q*(Z[:, 0]-cfg["xref"][j])*Vk[:, 0]
         PiT += h*Q*Vk[:, 0]**2
         dW = rng.normal(0, np.sqrt(h), M)
@@ -65,7 +84,7 @@ def estimator_inputs(cfg, pol, k, z, M, Mout, Min, seed, no_anticipation=False):
     PiT += QT*Vk[:, 0]**2
     p_hat, Pi_hat = lam0.mean(), PiT.mean()
     # nested antithetic CRN zeta, anchored at sigma(z, deployed action)
-    u0 = float(np.clip(pol(k, z[None, :]), *cfg["bounds"])[0])
+    u0 = float(_apply_control_set(pol(k, z[None, :]), cfg["bounds"])[0])
     m = A @ z + B*u0; sv = C @ z + D*u0 + Sg; sig_star = sv[0]
     d = rng.normal(0, np.sqrt(h), Mout)
     Zb = np.concatenate([np.repeat(m[None, :] + d[:, None]*sv[None, :], Min, 0),
@@ -79,7 +98,7 @@ def estimator_inputs(cfg, pol, k, z, M, Mout, Min, seed, no_anticipation=False):
         dWj = noise[:, jj]
         cv = V @ Ct[0]
         V = V @ At.T; V[:, 0] += dWj*cv
-        u = np.clip(pol(j, Zb), *cfg["bounds"])
+        u = _apply_control_set(pol(j, Zb), cfg["bounds"])
         Zb = Zb @ A.T + np.outer(u, B) + (Zb @ C.T + np.outer(u, D) + Sg)*dWj[:, None]
     lam += QT*(Zb[:, 0]-cfg["xtar"])*V[:, 0]
     lam = lam.reshape(2, Mout, Min).mean(axis=2)
@@ -88,10 +107,24 @@ def estimator_inputs(cfg, pol, k, z, M, Mout, Min, seed, no_anticipation=False):
     return dict(u=u0, p=p_hat, Pi=Pi_hat, zeta=ze, sigma_star=sig_star,
                 sigma_bar=sig_star - p["gu"]*u0)
 
-def kkt_residual(cfg, inp, tol=1e-9):
+def active_tol(lo, hi, dtype=np.float32):
+    """Active-set tolerance robust to float32-stored actions (review
+    2026-08-07 sec.4.3): float32(0.650) round-trips to 0.649999976..., so a
+    1e-9 test misclassifies every upper-bound float32 action as interior
+    (measured: upper occupancy 0% vs 29.4%). Torch policies emit float32, so
+    this protects the H=16 headline switching statistics, not just the DP
+    audit. Scale machine eps to the bound magnitude with a 1e-7 floor."""
+    scale = max(1.0, abs(lo), abs(hi))
+    return max(1e-7, 8.0*float(np.finfo(dtype).eps)*scale)
+
+def kkt_residual(cfg, inp, tol=None):
     """Box KKT residual of the estimated generalized Hamiltonian at the
-    deployed action (minimisation convention)."""
-    p = cfg["params"]; lo, hi = cfg["bounds"]; u = inp["u"]
+    deployed action (minimisation convention). tol=None -> dtype-aware
+    active_tol (float32-safe); pass an explicit tol only in exact-float
+    synthetic tests."""
+    p = cfg["params"]; lo, hi = _box_bounds(cfg, "evaluate.kkt_residual"); u = inp["u"]
+    if tol is None:
+        tol = active_tol(lo, hi)
     g = p["R"]*u + p["b"]*inp["p"] + p["gu"]*(inp["zeta"]
         + inp["Pi"]*(inp["sigma_bar"] + p["gu"]*u))
     if u <= lo + tol:  return max(0.0, -g)
@@ -101,13 +134,14 @@ def kkt_residual(cfg, inp, tol=1e-9):
 def active_set_stats(cfg, pol, Np, seed):
     p, h, N, H = cfg["params"], cfg["h"], cfg["N"], cfg["H"]
     A, B, C, D, Sg = build_dense(p, H, h)
-    lo, hi = cfg["bounds"]
+    lo, hi = _box_bounds(cfg, "evaluate.active_set_stats")
+    atol = active_tol(lo, hi)
     rng = np.random.default_rng(seed)
     Z = np.stack([make_hist(rng, H+1, cfg["tt"], cfg["delta"]) for _ in range(Np)])
     occ = np.zeros(3); trans = np.zeros(Np); first = np.full(Np, np.nan); prev = None
     for k in range(N):
         u = np.clip(pol(k, Z), lo, hi)
-        reg = np.where(u <= lo+1e-9, -1, np.where(u >= hi-1e-9, 1, 0))
+        reg = np.where(u <= lo+atol, -1, np.where(u >= hi-atol, 1, 0))
         occ += [(reg == -1).mean(), (reg == 0).mean(), (reg == 1).mean()]
         if prev is not None:
             ch = reg != prev
@@ -122,8 +156,9 @@ def active_set_stats(cfg, pol, Np, seed):
                 switched_frac=float(mask.mean()))
 
 def regime_disagreement(cfg, polA, polB, states):
-    lo, hi = cfg["bounds"]; dis = 0
-    lab = lambda u: -1 if u <= lo+1e-9 else (1 if u >= hi-1e-9 else 0)
+    lo, hi = _box_bounds(cfg, "evaluate.regime_disagreement"); dis = 0
+    atol = active_tol(lo, hi)
+    lab = lambda u: -1 if u <= lo+atol else (1 if u >= hi-atol else 0)
     for (k, z) in states:
         ua = float(np.clip(polA(k, z[None, :]), lo, hi)[0])
         ub = float(np.clip(polB(k, z[None, :]), lo, hi)[0])

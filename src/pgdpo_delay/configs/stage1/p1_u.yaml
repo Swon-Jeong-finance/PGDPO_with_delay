@@ -1,0 +1,23 @@
+# P1-U Stage-I Phase-B production pilot.  The training seed is deliberately
+# not stored here: each worker receives it from the multi-seed scheduler.
+schema: 2
+name: p1_u
+problem: p1
+problem_config: main_u
+method: stage1_lstm_dpo
+chart: identity
+dtype: float32
+training:
+  iters: 3000
+  batch: 1024
+  lr: 0.00005
+  hidden: 256
+  num_layers: 2
+  clip_grad: 1.0
+  log_every: 100
+  val_every: 100
+  val_batch: 1024
+evaluation:
+  Np: 50000
+  seed: 123
+  batch_size: 4096

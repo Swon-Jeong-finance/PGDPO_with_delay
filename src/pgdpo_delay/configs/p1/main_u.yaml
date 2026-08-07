@@ -1,4 +1,7 @@
-# P1-C(main) frozen calibration (V3, reviewer-approved 2026-08-06).
+# P1-U(main_u) frozen calibration -- SAME V3 problem/grid numbers as
+# main.yaml with the box removed (Stage-I review H1: the exact Riccati
+# oracle's actions leave the box ~39%% of the time, so P1-U must NOT
+# train through a box chart). (V3, reviewer-approved 2026-08-06).
 # SINGLE SOURCE for paper numbers: code carries no fallback defaults.
 problem:
   a: -0.3
@@ -19,9 +22,7 @@ tracking:
   ref_amplitude: 0.5
   x_target: 0.3
 control:
-  kind: box
-  lower: -0.531
-  upper: 0.650
+  kind: unconstrained
 budgets:
   M: 8192
   M_out: 512

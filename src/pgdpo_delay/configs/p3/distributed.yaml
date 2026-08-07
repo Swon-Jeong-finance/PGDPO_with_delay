@@ -1,0 +1,39 @@
+# P3-D distributed-incubation variant (V1 pilot 2026-08-07).
+# P3-R and P3-D SHARE the primitive epidemic/cost/control coefficients of the
+# renewal V1 calibration; the memory dynamics AND the initial-memory laws
+# differ (review sec.5.6); no direct P3-R/P3-D numerical comparison is made.
+# rho is absent because the truncated-Gamma kernel admits no low-dimensional
+# lift -- this is the genuine path-dependent variant, with no exact oracle.
+# Cost half-convention as in renewal.yaml.
+kind: distributed
+problem:
+  beta: 2.0
+  gamma: 0.6
+  b: 0.6
+  sigma0: 0.7
+  eta_sigma: 0.7
+  Npop: 1.0
+  c_I: 4.0
+  R: 0.22
+  c_T: 4.0
+grid:
+  T: 2.0
+  dt_sim: 0.02
+control:
+  lower: 0.0
+  upper: 1.0
+init:
+  I0: [0.05, 0.40]     # I at t=0
+  Ipast: [0.02, 0.80]  # history endpoint at t=-delta; linear ramp in between
+dist:                   # truncated-Gamma incubation kernel on [0, delta]
+  delta: 0.5            # taps H = delta/dt_sim = 25
+  m_K: 3.0              # shape (peak at (m_K-1)*theta = 0.2, interior)
+  theta: 0.1            # scale; truncation at delta cuts a genuine tail
+nmpc:                   # frozen CE-NMPC proxy contract (not a reference)
+  lookahead_steps: 25
+  max_iter: 40
+  gtol: 1.0e-8
+  ftol: 1.0e-12
+  # Before the prediction window reaches physical T, the same quadratic
+  # shape is an MPC terminal surrogate; at T it is the physical terminal cost.
+  terminal_mode: quadratic_proxy

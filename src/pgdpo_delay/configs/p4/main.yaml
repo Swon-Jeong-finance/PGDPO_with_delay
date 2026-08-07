@@ -1,0 +1,33 @@
+# P4 signed-trading V1 calibration, frozen after exact-Riccati, causal-impact,
+# curvature, MC-value, feasibility, and history/signal visibility gates on
+# 2026-08-07. This packaged YAML is the sole source for production numbers.
+calibration_status: frozen
+problem:
+  q0: 1.0
+  sigma_Q: 0.10       # stochastic-fill loading
+  kappa_alpha: 2.0    # signal mean reversion
+  sigma_alpha: 0.15   # signal volatility
+  gamma: 0.75         # instantaneous impact magnitude G(0)
+  rho_G: 15.0         # impact decay rate; G(delta)/G(0)=exp(-3)~0.05
+  phi: 0.10           # running inventory penalty
+  eta: 0.10           # temporary-impact/control curvature
+  kappa: 10.0         # terminal inventory penalty
+grid:
+  T: 1.0
+  dt: 0.01
+  delta: 0.20         # H=20; augmented state dimension H+2=22
+control:
+  kind: signed        # u is in R; no clipping or box variant in the main pilot
+model:
+  state_discretization: euler
+  impact_kernel: exponential
+  impact_timing: pre_trade
+  impact_source: realized_fills
+noise:
+  channels: [W_Q, W_alpha]
+  correlation: 0.0    # W_Q and W_alpha are independent in the main instance
+init:
+  q0: 1.0             # Q_0=...=Q_{-H}=q0, so I_0=0 exactly
+  alpha0:
+    law: deterministic
+    value: 0.0         # stochastic signal innovations start after t=0

@@ -19,6 +19,7 @@ tracking:
   ref_amplitude: 0.5
   x_target: 0.3
 control:
+  kind: box
   lower: -0.531
   upper: 0.650
 budgets:

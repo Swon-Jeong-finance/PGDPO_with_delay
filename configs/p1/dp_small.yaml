@@ -1,0 +1,32 @@
+# P1-U / P1-C(main) frozen calibration (V3, reviewer-approved 2026-08-06).
+# SINGLE SOURCE for paper numbers: code carries no fallback defaults.
+problem:
+  a: -0.3
+  a_delay: 0.9
+  b: 1.0
+  sigma0: 0.2
+  c_x: 0.1
+  c_y: 0.30
+  gamma_u: 0.7
+  Q: 1.0
+  R: 0.1
+  Q_T: 2.0
+grid:
+  T: 1.0
+  delta: 0.2
+  taps: 3             # dt = delta / taps (small DP-audit variant)
+tracking:
+  ref_amplitude: 0.5
+  x_target: 0.3
+control:
+  lower: -0.531
+  upper: 0.650
+budgets:
+  M: 8192
+  M_out: 512
+  M_in: 8
+dp:
+  n_x: 25
+  n_gh: 5
+  n_u: 21
+  L: 3.0

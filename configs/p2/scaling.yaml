@@ -1,0 +1,26 @@
+# P2 frozen scaling calibration (variant B adopted 2026-08-06). Single source.
+grid: {T: 1.0, dt: 0.02}
+kernel: {rho_delta: 2.5}          # shape-fixed across the memory sweep
+r_main: 4
+variant: B
+coefficients:
+  A:  {B: [-0.5, -0.15], A: [-0.5, -0.3]}   # per-variant (a0, a1) of a0 + a1*L
+  AM: {B: [0.6, 0.15],   A: [0.4, 0.1]}
+  Bc: [1.0, 0.2]
+  Q:  [1.0, 0.2]
+  R:  [0.1, 0.02]
+  QT: [2.0, 0.0]
+  C0:  [0.15, 0.10, 0.08, 0.12]
+  C1:  [0.05, -0.03, 0.02, 0.00]
+  CM0: [0.10, 0.00, 0.05, 0.03]
+  CM1: [0.00, 0.05, 0.00, 0.02]
+  D0:  [0.30, 0.15, 0.20, 0.10]
+  D1:  [0.10, 0.00, 0.05, 0.00]
+  sigma0_scale: 0.2
+sweeps:
+  dimension: {d: [5, 20, 50, 100], H: 25}
+  memory:    {d: 20, H: [10, 25, 50]}
+  corner:    {d: 100, H: 50}
+  channels:  {d: 20, H: 25, r: [2, 4, 8]}
+budgets: {Np: 200, reps: 3}
+seeds: {model: 1, hist: 2, noise: 3}

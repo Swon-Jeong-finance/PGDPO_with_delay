@@ -1,4 +1,7 @@
-"""P1-C no-anticipation ablation (review sec.5.5, sec.9): the ablated variant
+"""P1-C no-DELAYED-RE-ENTRY TANGENT ablation ("no-anticipation adjoint
+ablation"; review 2026-08-07 sec.12 naming). Physical dynamics and the frozen
+policy values are untouched -- ONLY the tangent re-entry derivatives are cut.
+The ablated variant
 computes recovery inputs with the delayed re-entry channel REMOVED from the
 tangent propagation (A[0,H] = C[0,H] = 0 in tangents only; rollouts and the
 frozen policy are identical, same noise budget). Recovery then clips the
@@ -7,10 +10,13 @@ generalized-Hamiltonian minimiser with the ablated (p, zeta, Pi).
 import numpy as np
 from .evaluate import estimator_inputs
 
-def recovered_action(cfg, inp):
+def recovered_action(cfg, inp, denom_tol=1e-10):
     p = cfg["params"]
-    u = -(p["b"]*inp["p"] + p["gu"]*inp["zeta"] + p["gu"]*inp["Pi"]*inp["sigma_bar"]) \
-        / (p["R"] + p["gu"]**2*inp["Pi"])
+    denom = p["R"] + p["gu"]**2*inp["Pi"]
+    if not np.isfinite(denom) or denom <= denom_tol:
+        raise FloatingPointError(f"recovery denominator degenerate: {denom}")
+    u = -(p["b"]*inp["p"] + p["gu"]*inp["zeta"]
+          + p["gu"]*inp["Pi"]*inp["sigma_bar"])/denom
     return float(np.clip(u, *cfg["bounds"]))
 
 def compare_inputs(cfg, pol, states, M, Mout, Min, seed):

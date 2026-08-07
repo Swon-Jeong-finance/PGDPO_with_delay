@@ -130,11 +130,16 @@ def exact_recovery_inputs(k, z, params, H, h, orc, G, xref):
 def V(z, P, s, c): return 0.5*z @ P @ z + s @ z + c
 
 # ---------------------------------------------------------------- checks
+# Config-independent algebra fixture: NOT the adopted V3 calibration. The
+# machine-precision identities below hold for any admissible parameters, so
+# verify pins one legacy set to keep the printed reference values stable.
+LEGACY_ALGEBRA_FIXTURE = dict(a=-0.3, ad=0.6, b=1.0, s0=0.2, cx=0.1, cy=0.15,
+                              gu=0.4, Q=1.0, R=0.1, QT=2.0)
+
 def run_checks():
     from scipy.optimize import minimize_scalar
     rng = np.random.default_rng(0)
-    params = dict(a=-0.3, ad=0.6, b=1.0, s0=0.2, cx=0.1, cy=0.15, gu=0.4,
-                  Q=1.0, R=0.1, QT=2.0)
+    params = dict(LEGACY_ALGEBRA_FIXTURE)   # fixture, not configs/p1/main.yaml
     T, delta, h = 1.0, 0.2, 0.05
     N, H = round(T/h), round(delta/h)
     xref = 0.5*np.sin(2*np.pi*np.arange(N)*h/T); xtar = 0.3

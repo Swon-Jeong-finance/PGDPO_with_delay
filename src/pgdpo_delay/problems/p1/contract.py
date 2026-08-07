@@ -99,7 +99,9 @@ def zeta_nested(params, H, h, N, orc, xref, xtar, k, z, Pi_hat, Mout, Min, rng):
     return zeta, q_ols, se, sig_star
 
 # ---------------------------------------------------------------- contract check
-if __name__ == "__main__":
+def run(outdir="."):
+    from pathlib import Path as _P
+    outdir = _P(outdir); outdir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(7)
     cfg = load_config("main")               # adopted P1-U calibration (YAML)
     params = cfg["params"]
@@ -183,12 +185,16 @@ if __name__ == "__main__":
         e = np.array(sweep[m])
         print(f"  M={m:5d}: p {np.sqrt((e[:,0]**2).mean()):.3e}   Pi {np.sqrt((e[:,1]**2).mean()):.3e}")
 
-    with open("p1_contract_config.json", "w") as fp:
+    with open(outdir/"contract_config.json", "w") as fp:
         json.dump(dict(api=ORACLE_API_VERSION, params=params, T=T, delta=delta,
                        h=h, N=N, H=H, Mout=Mout, Min=Min, M_equal_budget=M_eq,
                        seed=7, Ns=len(rows)), fp, indent=1)
-    np.savez("p1_contract_states.npz",
+    np.savez(outdir/"contract_states.npz",
              k=np.array([r["k"] for r in rows]),
              Z=np.stack([z for _, z in states]),
              **{key: g(key) for key in rows[0] if key != "k"})
-    print("saved: p1_contract_config.json, p1_contract_states.npz")
+    print(f"saved: {outdir}/contract_config.json, {outdir}/contract_states.npz")
+
+
+if __name__ == "__main__":
+    run()

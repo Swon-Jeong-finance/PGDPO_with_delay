@@ -14,9 +14,10 @@ from .config import load_config
 from .dynamics import grid, make_hist, feedback_path
 assert ORACLE_API_VERSION == "p1-v3-pcur-pnext"
 
-def run(hs=(0.1, 1/15, 0.05, 0.025, 0.0125, 0.00625), save=True):
-    V3 = load_config("main")["params"]
-    T, delta = 1.0, 0.2
+def run(hs=(0.1, 1/15, 0.05, 0.025, 0.0125, 0.00625), save=True, config="main", outdir="."):
+    _cfg = load_config(config)
+    V3 = _cfg["params"]
+    T, delta = _cfg["T"], _cfg["delta"]
     b, gu, R = V3["b"], V3["gu"], V3["R"]
     rows = []
     print(f"{'h':>8} {'H':>4} {'nRMSE(p_nxt,p_cur)':>20} {'PathA floor RMSE':>18} {'relative':>10}")
@@ -43,9 +44,11 @@ def run(hs=(0.1, 1/15, 0.05, 0.025, 0.0125, 0.00625), save=True):
         print(f"{h:8.4f} {H:4d} {nr_p:20.4%} {rm_u:18.3e} {rm_u/mu:10.3%}")
         rows.append(dict(h=h, H=H, nrmse_p=nr_p, floor_rmse=rm_u, floor_rel=rm_u/mu))
     if save:
-        with open("p1_h_refine_v3.csv", "w", newline="") as fp:
+        from pathlib import Path as _P
+        out = _P(outdir); out.mkdir(parents=True, exist_ok=True)
+        with open(out/"h_refine.csv", "w", newline="") as fp:
             w = csv.DictWriter(fp, fieldnames=rows[0].keys()); w.writeheader(); w.writerows(rows)
-        print("saved: p1_h_refine_v3.csv")
+        print(f"saved: {out/'h_refine.csv'}")
     return rows
 
 if __name__ == "__main__":

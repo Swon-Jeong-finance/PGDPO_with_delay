@@ -9,5 +9,11 @@ description = "PGDPO delay-control benchmarks: reference layer, solver, experime
 requires-python = ">=3.10"
 dependencies = ["numpy", "scipy", "pyyaml"]
 
+[project.scripts]
+pgdpo-delay = "pgdpo_delay.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+pgdpo_delay = ["configs/p1/*.yaml", "configs/p2/*.yaml", "configs/p3/*.yaml", "configs/p4/*.yaml"]

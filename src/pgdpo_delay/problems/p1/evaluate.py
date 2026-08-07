@@ -32,7 +32,9 @@ def rollout_paired(cfg, polA, polB, Np, seed):
         cost += 0.5*p["QT"]*(Z[:, 0]-cfg["xtar"])**2
         out.append(cost)
     d = out[0] - out[1]
-    return d.mean(), d.std(ddof=1)/np.sqrt(Np)
+    return dict(J_A=float(out[0].mean()), J_B=float(out[1].mean()),
+                delta_A_minus_B=float(d.mean()),
+                se=float(d.std(ddof=1)/np.sqrt(Np)))
 
 def _tangent_mats(cfg, no_anticipation):
     A, B, C, D, Sg = build_dense(cfg["params"], cfg["H"], cfg["h"])
@@ -114,8 +116,10 @@ def active_set_stats(cfg, pol, Np, seed):
         prev = reg
         dW = rng.normal(0, np.sqrt(h), Np)
         Z = Z @ A.T + np.outer(u, B) + (Z @ C.T + np.outer(u, D) + Sg)*dW[:, None]
+    mask = ~np.isnan(first)
     return dict(occ=occ/N, transitions=trans.mean(),
-                first_switch=np.nanmean(first), switched_frac=np.mean(~np.isnan(first)))
+                first_switch=float(np.mean(first[mask])) if mask.any() else None,
+                switched_frac=float(mask.mean()))
 
 def regime_disagreement(cfg, polA, polB, states):
     lo, hi = cfg["bounds"]; dis = 0

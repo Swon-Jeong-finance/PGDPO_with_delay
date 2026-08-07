@@ -19,28 +19,35 @@ import csv, json, time
 import numpy as np
 from .oracle import P2_API_VERSION, kernel_weights, p2_mode_oracle, \
                       exact_recovery_inputs_p2, mode_rows
+from .config import load_p2_config
 assert P2_API_VERSION == "p2-v2-guards"
 
-T, h = 1.0, 0.02
+CFG = load_p2_config("scaling")
+T, h = CFG["grid"]["T"], CFG["grid"]["dt"]
 N = round(T/h)
+RHO_DELTA = CFG["kernel"]["rho_delta"]
+R_MAIN = int(CFG["r_main"])
+COEF = CFG["coefficients"]
 
-def ring_spec(d, r, rng_model, variant="B"):
+def _pad(base, r, fill):
+    return list(base)[:r] + [fill]*max(0, r - len(base))
+
+def ring_spec(d, r, rng_model, variant=None):
+    """Coefficient spectra from configs/p2/scaling.yaml ONLY (single source)."""
+    variant = variant or CFG["variant"]
     lam = 2 - 2*np.cos(2*np.pi*np.arange(d)/d)
     fl = lambda a0, a1: a0 + a1*lam
-    c0 = [0.15, 0.10, 0.08, 0.12][:r] + [0.1]*max(0, r-4)
-    c1 = [0.05, -0.03, 0.02, 0.00][:r] + [0.0]*max(0, r-4)
-    m0 = [0.10, 0.00, 0.05, 0.03][:r] + [0.0]*max(0, r-4)
-    m1 = [0.00, 0.05, 0.00, 0.02][:r] + [0.0]*max(0, r-4)
-    d0 = [0.30, 0.15, 0.20, 0.10][:r] + [0.1]*max(0, r-4)
-    d1 = [0.10, 0.00, 0.05, 0.00][:r] + [0.0]*max(0, r-4)
-    av = dict(A=(-0.5, -0.3), AM=(0.4, 0.1)) if variant == "A" \
-         else dict(A=(-0.5, -0.15), AM=(0.6, 0.15))
-    return dict(a=fl(*av["A"]), aM=fl(*av["AM"]), b=fl(1.0, 0.2),
+    c0 = _pad(COEF["C0"], r, 0.1);  c1 = _pad(COEF["C1"], r, 0.0)
+    m0 = _pad(COEF["CM0"], r, 0.0); m1 = _pad(COEF["CM1"], r, 0.0)
+    d0 = _pad(COEF["D0"], r, 0.1);  d1 = _pad(COEF["D1"], r, 0.0)
+    return dict(a=fl(*COEF["A"][variant]), aM=fl(*COEF["AM"][variant]),
+                b=fl(*COEF["Bc"]),
                 c=[fl(c0[l], c1[l]) for l in range(r)],
                 cM=[fl(m0[l], m1[l]) for l in range(r)],
                 dd=[fl(d0[l], d1[l]) for l in range(r)],
-                q=fl(1.0, 0.2), r=fl(0.1, 0.02), qT=fl(2.0, 0.0),
-                sig=[rng_model.normal(0, 0.2, d) for l in range(r)], nbm=r)
+                q=fl(*COEF["Q"]), r=fl(*COEF["R"]), qT=fl(*COEF["QT"]),
+                sig=[rng_model.normal(0, COEF["sigma0_scale"], d) for l in range(r)],
+                nbm=r)
 
 def mode_hist(rng, d, n1, tt, delta):
     amp = rng.uniform(-1.0, 1.0, d)
@@ -51,9 +58,11 @@ def mode_hist(rng, d, n1, tt, delta):
     Z[kind == 2] = amp[kind == 2, None]*np.cos(2*np.pi*tt[None, :]/delta + ph[kind == 2, None])
     return Z
 
-def calibrate(d, H, r, seeds=(1, 2, 3), variant="B", tail=False, reps=3):
+def calibrate(d, H, r, seeds=None, variant=None, tail=False, reps=None, outdir="."):
+    seeds = seeds or (CFG["seeds"]["model"], CFG["seeds"]["hist"], CFG["seeds"]["noise"])
+    reps = reps or int(CFG["budgets"]["reps"])
     delta = H*h; n1 = H+1
-    w = kernel_weights(2.5/delta, delta, h, H)
+    w = kernel_weights(RHO_DELTA/delta, delta, h, H)
     rng_model = np.random.default_rng(seeds[0])
     rng_hist  = np.random.default_rng(seeds[1])
     rng_noise = np.random.default_rng(seeds[2])
@@ -67,7 +76,7 @@ def calibrate(d, H, r, seeds=(1, 2, 3), variant="B", tail=False, reps=3):
     lam_min = min(min(o["Lam"])/h for o in orc)
     Pi_min = min(o["G"][k][0, 0] for o in orc for k in range(N+1))
 
-    Np = 200
+    Np = int(CFG["budgets"]["Np"])
     tt = np.linspace(-delta, 0, n1)[::-1]
     Z0 = np.stack([mode_hist(rng_hist, d, n1, tt, delta) for _ in range(Np)])
     # H3: exact per-node objective from the value oracle at k = 0
@@ -141,25 +150,28 @@ def calibrate(d, H, r, seeds=(1, 2, 3), variant="B", tail=False, reps=3):
         row.update(tail_X99=q99(mx), tail_u99=q99(mu_))
     return row
 
-def main():
-    print(f"[{P2_API_VERSION}] h={h} N={N}, kernel rho*delta=2.5 shape-fixed "
+def main(outdir="."):
+    from pathlib import Path
+    outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
+    sw = CFG["sweeps"]
+    print(f"[{P2_API_VERSION}] h={h} N={N}, kernel rho*delta={RHO_DELTA} shape-fixed "
           f"(appendix: one fixed-rho robustness line); ring = network-coupled")
     out = []
-    print("--- dimension sweep (H=25, r=4 main convention, variant B) ---")
-    for d in (5, 20, 50, 100): out.append(calibrate(d, 25, 4))
-    print("--- memory sweep (d=20, r=4) ---")
-    for H in (10, 25, 50): out.append(calibrate(20, H, 4))
+    print(f"--- dimension sweep (H={sw['dimension']['H']}, r={R_MAIN} main convention) ---")
+    for d in sw["dimension"]["d"]: out.append(calibrate(d, sw["dimension"]["H"], R_MAIN))
+    print(f"--- memory sweep (d={sw['memory']['d']}, r={R_MAIN}) ---")
+    for H in sw["memory"]["H"]: out.append(calibrate(sw["memory"]["d"], H, R_MAIN))
     print("--- extreme corner ---")
-    out.append(calibrate(100, 50, 4, tail=True))
-    print("--- diffusion-channel-count/intensity sensitivity (d=20, H=25; NOT rank-only) ---")
-    for r in (2, 4, 8): out.append(calibrate(20, 25, r))
-    with open("p2_calibration_results.csv", "w", newline="") as fp:
+    out.append(calibrate(sw["corner"]["d"], sw["corner"]["H"], R_MAIN, tail=True))
+    print(f"--- diffusion-channel-count/intensity sensitivity (NOT rank-only) ---")
+    for r in sw["channels"]["r"]: out.append(calibrate(sw["channels"]["d"], sw["channels"]["H"], r))
+    with open(outdir/"p2_calibration_results.csv", "w", newline="") as fp:
         wcsv = csv.DictWriter(fp, fieldnames=sorted({k for rw in out for k in rw}))
         wcsv.writeheader(); wcsv.writerows(out)
-    with open("p2_calibration_config.json", "w") as fp:
-        json.dump(dict(api=P2_API_VERSION, h=h, T=T, N=N, variant="B", r_main=4,
-                       kernel="trapezoidal rho*delta=2.5", Np=200,
-                       seeds=dict(model=1, hist=2, noise=3)), fp, indent=1)
+    with open(outdir/"p2_calibration_config.json", "w") as fp:
+        json.dump(dict(api=P2_API_VERSION, h=h, T=T, N=N, variant=CFG["variant"],
+                       r_main=R_MAIN, kernel=f"trapezoidal rho*delta={RHO_DELTA}",
+                       Np=int(CFG["budgets"]["Np"]), seeds=CFG["seeds"]), fp, indent=1)
     print("saved: p2_calibration_results.csv, p2_calibration_config.json")
 
 if __name__ == "__main__":

@@ -3,7 +3,9 @@
 
   python main.py verify   --problem p1|p2 | --all   [--full]
   python main.py config   --problem p1 --base main --name main_gu05 --set problem.gamma_u=0.5
-  python main.py run      --problem p1 --seeds 1,2,3 --config main_gu05
+  python main.py run      --problem p1 --stage 1 --protocol p1_u \
+                          --seeds 1,2,3,4,5 \
+                          --devices cuda:0,cuda:1,cuda:2
 """
 import sys
 from pathlib import Path
